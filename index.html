@@ -228,6 +228,11 @@
     <div class="grid" style="margin-top:14px;">
       <div><label>納期（任意入力）</label><input id="delivery" type="text" placeholder="例）8/20 または 2026-08-20"></div>
       <div><label>発注数（任意入力）</label><input id="qty" type="number" min="1" step="1" placeholder="数量"></div>
+      <div>
+        <label>単位</label>
+        <input id="unit" list="unitList2" placeholder="本" autocomplete="off">
+        <datalist id="unitList2"></datalist>
+      </div>
     </div>
 
     <div class="amount-box" style="margin-top:16px;">
@@ -268,11 +273,12 @@
             <th style="width:14%">図番(OT番号)</th>
             <th>品名(製品名)</th>
             <th style="width:12%">備考(作業区分)</th>
+            <th style="width:7%">単位</th>
             <th style="width:11%">単価</th>
             <th style="width:14%"></th>
           </tr>
         </thead>
-        <tbody id="mBody"><tr><td colspan="7" class="empty">読込中…</td></tr></tbody>
+        <tbody id="mBody"><tr><td colspan="8" class="empty">読込中…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -320,6 +326,15 @@
         </div>
         <div class="grid" style="margin-top:14px;">
           <div>
+            <label class="req">単位</label>
+            <input id="fUnit" list="unitList" placeholder="例）本" autocomplete="off">
+            <datalist id="unitList"></datalist>
+            <div class="hint">一覧から選ぶか、新しい単位を直接入力できます。</div>
+          </div>
+          <div></div>
+        </div>
+        <div class="grid" style="margin-top:14px;">
+          <div>
             <label>外注先 郵便番号</label>
             <input id="fZip" placeholder="例）561-0845">
           </div>
@@ -361,12 +376,43 @@ const HDR = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Ty
 /* 自社情報 */
 const OWN = { zip:"561-0805", addr:"大阪府豊中市原田南2-7-2", name:"大阪テック株式会社", staff:"永冨" };
 
+/* ===== 単位（プルダウン＋直接入力・localStorageに履歴保持） ===== */
+const UNIT_DEFAULT = ["本","台","個","枚","式","セット","kg","m"];
+let UNIT_LIST = (function(){
+  try{
+    const s = JSON.parse(localStorage.getItem("hatchu_unit_list")||"null");
+    return Array.isArray(s) && s.length ? s : [...UNIT_DEFAULT];
+  }catch(e){ return [...UNIT_DEFAULT]; }
+})();
+function saveUnitList(){
+  try{ localStorage.setItem("hatchu_unit_list", JSON.stringify(UNIT_LIST)); }catch(e){}
+}
+/* マスタに登録済みの単位も候補に取り込む */
+function rebuildUnitList(){
+  const fromMaster = (typeof MASTER!=="undefined" && Array.isArray(MASTER))
+    ? MASTER.map(m=>m.unit).filter(Boolean) : [];
+  const all = [...new Set([...UNIT_LIST, ...fromMaster])];
+  const html = all.map(u=>`<option value="${String(u).replace(/"/g,"&quot;")}">`).join("");
+  const a = document.getElementById("unitList"), b = document.getElementById("unitList2");
+  if(a) a.innerHTML = html;
+  if(b) b.innerHTML = html;
+}
+/* 新しい単位を候補に追加 */
+function addUnit(v){
+  v = String(v||"").trim();
+  if(!v || UNIT_LIST.includes(v)) return;
+  UNIT_LIST.push(v); saveUnitList(); rebuildUnitList();
+}
+
 /* ===== 発注担当者（プルダウン＋直接入力・localStorageに履歴保持） ===== */
-const STAFF_DEFAULT = ["永冨","三宅","瀧本","岡本","下岡","冨田"];
+const STAFF_DEFAULT = ["永冨","三宅","瀧本","岡本","下岡","冨田","藤田","藤川"];
 let STAFF_LIST = (function(){
   try{
     const s = JSON.parse(localStorage.getItem("hatchu_staff_list")||"null");
-    return Array.isArray(s) && s.length ? s : [...STAFF_DEFAULT];
+    // 保存済みリストがあっても、既定の候補は常にマージする（順序は既定を優先）
+    return Array.isArray(s) && s.length
+      ? [...new Set([...STAFF_DEFAULT, ...s])]
+      : [...STAFF_DEFAULT];
   }catch(e){ return [...STAFF_DEFAULT]; }
 })();
 function saveStaffList(){
@@ -427,11 +473,12 @@ async function loadMaster(){
     if(!res.ok) throw new Error("HTTP "+res.status);
     MASTER = await res.json();
     rebuildSupplierSelect();
+    rebuildUnitList();
     renderMasterTable();
     setStatus(`マスタ ${MASTER.length}件 読込完了`, "ok");
   }catch(e){
     setStatus("マスタ読込エラー: "+e.message, "err");
-    $("mBody").innerHTML = '<tr><td colspan="7" class="empty">読込エラー: '+esc(e.message)+'</td></tr>';
+    $("mBody").innerHTML = '<tr><td colspan="8" class="empty">読込エラー: '+esc(e.message)+'</td></tr>';
   }
 }
 
@@ -477,13 +524,16 @@ $("product").addEventListener("change", e=>{
   $("pname").value = CURRENT.product_name || "";
   $("biko").value  = CURRENT.work_type || "";
   $("price").value = CURRENT.unit_price!=null ? Number(CURRENT.unit_price).toLocaleString("ja-JP") : "";
+  $("unit").value  = CURRENT.unit || "本";
   recalc();
 });
 function clearProduct(){
   CURRENT=null;
   ["kanri","otno","pname","biko","price"].forEach(k=>$(k).value="");
+  $("unit").value="";
   recalc();
 }
+$("unit").addEventListener("change", e=>addUnit(e.target.value));
 
 $("qty").addEventListener("input", recalc);
 function recalc(){
@@ -515,7 +565,7 @@ function renderMasterTable(){
   });
   $("mCount").textContent = `${rows.length} / ${MASTER.length} 件`;
   if(!rows.length){
-    $("mBody").innerHTML = '<tr><td colspan="7" class="empty">該当するマスタがありません</td></tr>';
+    $("mBody").innerHTML = '<tr><td colspan="8" class="empty">該当するマスタがありません</td></tr>';
     return;
   }
   $("mBody").innerHTML = rows.map(m=>`
@@ -525,6 +575,7 @@ function renderMasterTable(){
       <td>${esc(m.ot_number)}</td>
       <td>${esc(m.product_name)}</td>
       <td>${esc(m.work_type)}</td>
+      <td>${esc(m.unit||"本")}</td>
       <td class="num">${m.unit_price!=null?"¥"+Number(m.unit_price).toLocaleString("ja-JP"):""}</td>
       <td class="ops">
         <button class="btn btn-ghost btn-sm" data-edit="${esc(m.id)}">編集</button>
@@ -547,6 +598,7 @@ function openModal(rec){
   $("fPname").value    = rec ? (rec.product_name||"") : "";
   $("fBiko").value     = rec ? (rec.work_type||"")    : "";
   $("fPrice").value    = rec && rec.unit_price!=null ? rec.unit_price : "";
+  $("fUnit").value     = rec ? (rec.unit||"本") : "本";
   fillAddrFields($("fSupplier").value.trim());
   setMMsg("","");
   $("mSaveBtn").disabled = false;
@@ -607,12 +659,14 @@ $("mSaveBtn").addEventListener("click", async ()=>{
     ot_number:    $("fOtno").value.trim(),
     product_name: $("fPname").value.trim(),
     work_type:    $("fBiko").value.trim(),
+    unit:         $("fUnit").value.trim(),
     unit_price:   $("fPrice").value===""? null : Number($("fPrice").value)
   };
   // 入力チェック
   if(!rec.supplier){ setMMsg("外注先を入力してください","err"); $("fSupplier").focus(); return; }
   if(!rec.kanri_no){ setMMsg("製番（管理No）を入力してください","err"); $("fKanri").focus(); return; }
   if(!rec.product_name){ setMMsg("品名（製品名）を入力してください","err"); $("fPname").focus(); return; }
+  if(!rec.unit){ setMMsg("単位を入力してください","err"); $("fUnit").focus(); return; }
   if(rec.unit_price===null || isNaN(rec.unit_price) || rec.unit_price<0){
     setMMsg("発注単価を正しく入力してください","err"); $("fPrice").focus(); return;
   }
@@ -635,6 +689,7 @@ $("mSaveBtn").addEventListener("click", async ()=>{
         { method:"PATCH", headers:{...HDR, Prefer:"return=minimal"}, body: JSON.stringify(rec) });
     }
     if(!res.ok) throw new Error(await res.text());
+    addUnit(rec.unit);
     // 外注先住所を保存（外注先単位）
     SUP_ADDR[rec.supplier] = { zip: $("fZip").value.trim(), addr: $("fAddr").value.trim() };
     saveSupAddr();
@@ -685,6 +740,7 @@ $("createBtn").addEventListener("click", async ()=>{
   if(qty<=0){ setStatus("発注数を入力してください","err"); return; }
   OWN.staff = $("staffInput").value.trim();
   if(!OWN.staff){ setStatus("発注担当者を入力してください","err"); $("staffInput").focus(); return; }
+  addUnit($("unit").value);
   $("createBtn").disabled=true; setStatus("採番中…","");
   try{
     const orderNo = await nextOrderNo();
@@ -694,7 +750,7 @@ $("createBtn").addEventListener("click", async ()=>{
     const rec = {
       order_no: orderNo, supplier: CURRENT.supplier, kanri_no: CURRENT.kanri_no,
       ot_number: CURRENT.ot_number, product_name: CURRENT.product_name,
-      work_type: CURRENT.work_type, unit:"本", delivery_date: delivery,
+      work_type: CURRENT.work_type, unit: ($("unit").value.trim() || CURRENT.unit || "本"), delivery_date: delivery,
       order_qty: qty, unit_price: price, amount: amount, order_date: todayISO()
     };
     const ins = await fetch(`${SB_URL}/rest/v1/hatchu_orders`, { method:"POST", headers:{...HDR, Prefer:"return=minimal"}, body: JSON.stringify(rec) });
@@ -744,6 +800,7 @@ function renderDocuments(r){
   const biko = bikoCircled(r.work_type);
   const del = r.delivery_date||"";
   const qty = r.order_qty;
+  const unit = r.unit || "本";
 
   // 16列モデル（各ラベル・値が潰れない幅・合計100%）
   const COLS = `
@@ -792,7 +849,7 @@ function renderDocuments(r){
     </tr>
     <tr class="gv">
       <td colspan="4" class="val">${qty}</td>
-      <td colspan="2" class="val">本</td>
+      <td colspan="2" class="val">${unit}</td>
       <td colspan="4" class="val">${priceStr}</td>
       <td colspan="4" class="val">${amtStr}</td>
       <td colspan="2" class="val">${taxStr}</td>
@@ -816,7 +873,7 @@ function renderDocuments(r){
       </tr>
       <tr class="gv">
         <td colspan="4" class="val">${qty}</td>
-        <td colspan="2" class="val">本</td>
+        <td colspan="2" class="val">${unit}</td>
         <td colspan="10" class="val"></td>
       </tr>
     </table>`;
@@ -833,7 +890,7 @@ function renderDocuments(r){
       </tr>
       <tr class="gv">
         <td colspan="4" class="val">${qty}</td>
-        <td colspan="2" class="val">本</td>
+        <td colspan="2" class="val">${unit}</td>
         <td colspan="6" class="val">${priceStr}</td>
         <td colspan="4" class="val sig"></td>
       </tr>
@@ -851,7 +908,7 @@ function renderDocuments(r){
       </tr>
       <tr class="gv">
         <td colspan="4" class="val">${qty}</td>
-        <td colspan="2" class="val">本</td>
+        <td colspan="2" class="val">${unit}</td>
         <td colspan="6" class="val"></td>
         <td colspan="4" class="val sig"></td>
       </tr>
@@ -933,6 +990,7 @@ function renderDocuments(r){
 }
 
 /* 初期化 */
+rebuildUnitList();
 loadMaster();
 </script>
 </body>
