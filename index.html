@@ -245,8 +245,11 @@
   <div class="panel no-print">
     <h2>② 発注書の作成</h2>
     <div class="actions">
+      <label style="display:flex;align-items:center;gap:6px;">オーダーNo
+        <input id="orderNoInput" style="width:120px;" placeholder="製品選択で自動採番">
+      </label>
       <button class="btn btn-primary" id="createBtn" disabled>発注書を作成する</button>
-      <span class="info-line">オーダーNo は作成時に自動採番（初期値 500001）されます。</span>
+      <span class="info-line">作成時に自動採番されます。必要なら書き換え可。</span>
       <span class="status" id="statusMsg"></span>
     </div>
   </div>
@@ -526,11 +529,16 @@ $("product").addEventListener("change", e=>{
   $("price").value = CURRENT.unit_price!=null ? Number(CURRENT.unit_price).toLocaleString("ja-JP") : "";
   $("unit").value  = CURRENT.unit || "本";
   recalc();
+  // オーダーNoを自動採番して表示（空欄のときのみ・編集可）
+  if(!$("orderNoInput").value.trim()){
+    nextOrderNo().then(no=>{ if(!$("orderNoInput").value.trim()) $("orderNoInput").value = no; }).catch(()=>{});
+  }
 });
 function clearProduct(){
   CURRENT=null;
   ["kanri","otno","pname","biko","price"].forEach(k=>$(k).value="");
   $("unit").value="";
+  $("orderNoInput").value="";
   recalc();
 }
 $("unit").addEventListener("change", e=>addUnit(e.target.value));
@@ -741,9 +749,10 @@ $("createBtn").addEventListener("click", async ()=>{
   OWN.staff = $("staffInput").value.trim();
   if(!OWN.staff){ setStatus("発注担当者を入力してください","err"); $("staffInput").focus(); return; }
   addUnit($("unit").value);
-  $("createBtn").disabled=true; setStatus("採番中…","");
+  $("createBtn").disabled=true; setStatus("作成中…","");
   try{
-    const orderNo = await nextOrderNo();
+    let orderNo = $("orderNoInput").value.trim();
+    if(!orderNo){ orderNo = await nextOrderNo(); $("orderNoInput").value = orderNo; }
     const price = CURRENT.unit_price!=null?Number(CURRENT.unit_price):0;
     const amount = qty*price;
     const delivery = $("delivery").value.trim();
@@ -784,6 +793,8 @@ applyPaper();
 /* ===== 備考を1文字ずつ〇で囲む ===== */
 function bikoCircled(text){
   if(!text) return "";
+  // 「機械加工」と完全一致のときは〇囲み・文字間隔なしのプレーン表示
+  if(text.trim()==="機械加工") return esc(text.trim());
   // 全角/半角スペースを除去して1文字ずつ
   const chars = text.replace(/[\s　]+/g,"").split("");
   return '<span class="biko-circ">'+chars.map(c=>`<span>${c}</span>`).join("")+'</span>';
