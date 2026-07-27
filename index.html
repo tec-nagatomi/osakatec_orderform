@@ -221,7 +221,7 @@
     </div>
 
     <div class="grid" style="margin-top:14px;">
-      <div><label>備考（作業区分）</label><input id="biko" class="readonly" readonly></div>
+      <div><label>備考（作業区分）</label><input id="biko" placeholder="製品選択で自動入力・編集可"></div>
       <div><label>発注単価（加工単価）</label><input id="price" class="readonly" readonly></div>
     </div>
 
@@ -750,7 +750,7 @@ $("createBtn").addEventListener("click", async ()=>{
     const rec = {
       order_no: orderNo, supplier: CURRENT.supplier, kanri_no: CURRENT.kanri_no,
       ot_number: CURRENT.ot_number, product_name: CURRENT.product_name,
-      work_type: CURRENT.work_type, unit: ($("unit").value.trim() || CURRENT.unit || "本"), delivery_date: delivery,
+      work_type: ($("biko").value.trim() || CURRENT.work_type || ""), unit: ($("unit").value.trim() || CURRENT.unit || "本"), delivery_date: delivery,
       order_qty: qty, unit_price: price, amount: amount, order_date: todayISO()
     };
     const ins = await fetch(`${SB_URL}/rest/v1/hatchu_orders`, { method:"POST", headers:{...HDR, Prefer:"return=minimal"}, body: JSON.stringify(rec) });
